@@ -178,7 +178,7 @@ Devin AI will create a separate PR with the actual security fixes."
           const originalPR = '${{ steps.payload.outputs.pr_number }}';
           const headRef = '${{ steps.payload.outputs.head_ref }}';
           const branchName = '${{ steps.branch.outputs.branch_name }}';
-          const alertCount = ${{ fromJson(steps.remediation.outputs.result).alertCount }};
+          const alertCount = ${{ fromJson(steps.devin-session.outputs.result).alertCount }};
           
           const title = `🤖 Devin AI Session: Fix ${vulnerabilityType} vulnerabilities (${severity})`;
           const body = `## 🤖 Devin AI CodeQL Remediation Session
