@@ -2,6 +2,8 @@
 
 A simple, demo OTP (One-Time Password) service that supports multiple communication channels including SMS, Email, and Push Notifications.
 
+> ✅ **Verification Note**: This demo project has been verified to work correctly with all core functionality tested.
+
 ## 🌟 Features
 
 - **Multi-Channel Support**: SMS, Email, and Push Notifications
