@@ -1,6 +1,9 @@
+import { mergeConfig, logError } from '../vulnerableUtils.js';
+
 /**
  * Email Channel Service
  * Simulates email delivery for demo purposes
+ * 🚨 CONTAINS MULTIPLE CODEQL VULNERABILITIES
  */
 export class EmailChannel {
   constructor(config = {}) {
@@ -8,9 +11,11 @@ export class EmailChannel {
     this.config = {
       provider: config.provider || 'Demo Email Provider',
       fromEmail: config.fromEmail || 'noreply@demo-otp.com',
-      fromName: config.fromName || 'Demo OTP Service',
-      ...config
+      fromName: config.fromName || 'Demo OTP Service'
     };
+    
+    // 🚨 CODEQL ISSUE: Prototype pollution via unsafe merge
+    mergeConfig(this.config, config);
   }
 
   /**
@@ -24,8 +29,10 @@ export class EmailChannel {
     // Simulate API call delay
     await this.simulateDelay();
 
-    // Validate email format
+    // 🚨 CODEQL ISSUE: Using vulnerable email validation
     if (!this.isValidEmail(email)) {
+      // 🚨 CODEQL ISSUE: Information disclosure in error logging
+      logError(new Error('Invalid email format'), { body: { email, otp } });
       throw new Error('Invalid email address format');
     }
 
@@ -82,7 +89,8 @@ export class EmailChannel {
    * @param {string} otp - OTP code
    * @returns {string} HTML template
    */
-  getDefaultHTMLTemplate(otp) {
+  getDefaultHTMLTemplate(otp, userInput = '') {
+    // 🚨 CODEQL ISSUE: XSS vulnerability in email template
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
@@ -95,6 +103,8 @@ export class EmailChannel {
           <div style="background: white; border: 2px dashed #667eea; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
             <span style="font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 8px;">${otp}</span>
           </div>
+          <!-- 🚨 CODEQL ISSUE: Unescaped user input in HTML -->
+          <p style="font-size: 14px; color: #333;">Note: ${userInput}</p>
           <p style="font-size: 14px; color: #666; margin-top: 20px;">
             ⏰ This code will expire in <strong>5 minutes</strong><br>
             🔒 For security, do not share this code with anyone

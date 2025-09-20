@@ -5,6 +5,17 @@ import crypto from 'crypto';
  */
 export class OTPGenerator {
   /**
+   * 🚨 CODEQL ISSUE: Insecure randomness
+   * Generate a random OTP code using weak randomness
+   */
+  static generateWeak(length = 6) {
+    // 🚨 CODEQL ISSUE: Using Math.random() for security-sensitive operations
+    const min = Math.pow(10, length - 1);
+    const max = Math.pow(10, length) - 1;
+    return Math.floor(Math.random() * (max - min + 1) + min).toString();
+  }
+
+  /**
    * Generate a random OTP code
    * @param {number} length - Length of the OTP (default: 6)
    * @param {boolean} alphanumeric - Include letters (default: false, numbers only)
