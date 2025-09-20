@@ -3,8 +3,6 @@ name: "Security Monitoring"
 on:
   pull_request:
     branches: [ main, master ]
-  schedule:
-    - cron: '0 8 * * 1'  # Weekly on Monday at 8 AM UTC
   workflow_dispatch:
 
 jobs:
