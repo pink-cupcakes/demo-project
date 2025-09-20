@@ -1,0 +1,291 @@
+name: "Manual Devin Security Analysis"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request number to analyze'
+        required: true
+        type: string
+      base_branch:
+        description: 'Base branch to compare against'
+        required: false
+        default: 'main'
+        type: string
+
+jobs:
+  analyze-new-vulnerabilities:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get PR details and changed files
+      id: pr-info
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: pr } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: ${{ github.event.inputs.pr_number }}
+          });
+          
+          const { data: files } = await github.rest.pulls.listFiles({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: ${{ github.event.inputs.pr_number }}
+          });
+          
+          const changedFiles = files.map(file => file.filename);
+          
+          core.setOutput('head_sha', pr.head.sha);
+          core.setOutput('base_sha', pr.base.sha);
+          core.setOutput('head_branch', pr.head.ref);
+          core.setOutput('base_branch', pr.base.ref);
+          core.setOutput('changed_files', JSON.stringify(changedFiles));
+          
+          console.log(`PR #${{ github.event.inputs.pr_number }}: ${pr.head.ref} -> ${pr.base.ref}`);
+          console.log(`Changed files: ${changedFiles.join(', ')}`);
+
+    - name: Get CodeQL alerts for base branch
+      id: base-alerts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: baseAlerts } = await github.rest.codeScanning.listAlertsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: '${{ steps.pr-info.outputs.base_branch }}',
+            per_page: 100
+          });
+          
+          console.log(`Found ${baseAlerts.length} alerts in base branch`);
+          core.setOutput('base_alerts', JSON.stringify(baseAlerts));
+
+    - name: Get CodeQL alerts for PR branch
+      id: pr-alerts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: prAlerts } = await github.rest.codeScanning.listAlertsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: '${{ steps.pr-info.outputs.head_sha }}',
+            per_page: 100
+          });
+          
+          console.log(`Found ${prAlerts.length} alerts in PR branch`);
+          core.setOutput('pr_alerts', JSON.stringify(prAlerts));
+
+    - name: Identify new vulnerabilities
+      id: new-vulns
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const baseAlerts = JSON.parse('${{ steps.base-alerts.outputs.base_alerts }}');
+          const prAlerts = JSON.parse('${{ steps.pr-alerts.outputs.pr_alerts }}');
+          const changedFiles = JSON.parse('${{ steps.pr-info.outputs.changed_files }}');
+          
+          // Create a set of existing alert fingerprints from base branch
+          const baseFingerprints = new Set(
+            baseAlerts.map(alert => `${alert.rule.id}:${alert.most_recent_instance?.location?.path}:${alert.most_recent_instance?.location?.start_line}`)
+          );
+          
+          // Find new alerts that are in changed files
+          const newAlerts = prAlerts.filter(alert => {
+            const fingerprint = `${alert.rule.id}:${alert.most_recent_instance?.location?.path}:${alert.most_recent_instance?.location?.start_line}`;
+            const isNew = !baseFingerprints.has(fingerprint);
+            const isInChangedFile = changedFiles.includes(alert.most_recent_instance?.location?.path);
+            
+            return isNew && isInChangedFile && alert.state === 'open';
+          });
+          
+          console.log(`Found ${newAlerts.length} new vulnerabilities in changed files`);
+          
+          // Group by CWE/vulnerability type
+          const vulnerabilityGroups = {};
+          const cweMapping = {
+            'js/command-line-injection': 'CWE-78-Command-Injection',
+            'js/path-injection': 'CWE-22-Path-Traversal',
+            'js/xss': 'CWE-79-Cross-Site-Scripting',
+            'js/xss-through-dom': 'CWE-79-Cross-Site-Scripting',
+            'js/sql-injection': 'CWE-89-SQL-Injection',
+            'js/hardcoded-credentials': 'CWE-798-Hardcoded-Credentials',
+            'js/insecure-randomness': 'CWE-338-Weak-Random-Number-Generator',
+            'js/prototype-pollution': 'CWE-1321-Prototype-Pollution',
+            'js/redos': 'CWE-1333-Regular-Expression-DoS',
+            'js/clear-text-logging': 'CWE-209-Information-Exposure',
+            'js/unsafe-deserialization': 'CWE-502-Unsafe-Deserialization',
+            'js/timing-attack': 'CWE-208-Timing-Attack',
+            'js/insecure-cookie': 'CWE-614-Insecure-Cookie',
+            'js/weak-cryptographic-algorithm': 'CWE-327-Weak-Cryptography',
+            'js/request-forgery': 'CWE-918-Server-Side-Request-Forgery',
+            'js/race-condition': 'CWE-362-Race-Condition',
+            'js/insecure-direct-object-reference': 'CWE-639-Insecure-Direct-Object-Reference'
+          };
+          
+          newAlerts.forEach(alert => {
+            const groupKey = cweMapping[alert.rule.id] || `Unknown-${alert.rule.id}`;
+            if (!vulnerabilityGroups[groupKey]) {
+              vulnerabilityGroups[groupKey] = [];
+            }
+            vulnerabilityGroups[groupKey].push(alert);
+          });
+          
+          core.setOutput('new_alerts', JSON.stringify(newAlerts));
+          core.setOutput('vulnerability_groups', JSON.stringify(vulnerabilityGroups));
+          core.setOutput('has_new_vulnerabilities', newAlerts.length > 0);
+          
+          // Log summary
+          Object.entries(vulnerabilityGroups).forEach(([group, alerts]) => {
+            console.log(`${group}: ${alerts.length} vulnerabilities`);
+          });
+
+    - name: Process vulnerability groups
+      if: steps.new-vulns.outputs.has_new_vulnerabilities == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const vulnerabilityGroups = JSON.parse('${{ steps.new-vulns.outputs.vulnerability_groups }}');
+          const prNumber = '${{ github.event.inputs.pr_number }}';
+          const headBranch = '${{ steps.pr-info.outputs.head_branch }}';
+          
+          // Process each vulnerability group
+          for (const [groupName, alerts] of Object.entries(vulnerabilityGroups)) {
+            console.log(`\n=== Processing ${groupName} (${alerts.length} vulnerabilities) ===`);
+            
+            // Create Devin session for this vulnerability group
+            const devinApiKey = process.env.DEVIN_API_TOKEN;
+            if (!devinApiKey) {
+              console.error('DEVIN_API_TOKEN not found in secrets');
+              continue;
+            }
+            
+            // Prepare vulnerability details for Devin
+            const vulnerabilityDetails = alerts.map(alert => ({
+              rule_id: alert.rule.id,
+              severity: alert.rule.severity,
+              description: alert.rule.description,
+              file: alert.most_recent_instance?.location?.path,
+              line: alert.most_recent_instance?.location?.start_line,
+              message: alert.most_recent_instance?.message?.text,
+              cwe: groupName
+            }));
+            
+            const prompt = `Please analyze and fix the following ${groupName} security vulnerabilities found in a pull request:
+
+**Vulnerability Group:** ${groupName}
+**Number of Issues:** ${alerts.length}
+
+**Vulnerability Details:**
+${vulnerabilityDetails.map((vuln, index) => `
+${index + 1}. **File:** ${vuln.file}:${vuln.line}
+   **Rule:** ${vuln.rule_id}
+   **Severity:** ${vuln.severity}
+   **Description:** ${vuln.description}
+   **Message:** ${vuln.message}
+`).join('\n')}
+
+**Instructions:**
+1. Review each vulnerability in the context of the codebase
+2. Provide secure code fixes for each issue
+3. Ensure fixes follow security best practices
+4. Group related fixes together if they affect the same file
+5. Provide clear explanations for each fix
+
+Please create a comprehensive fix for all ${groupName} vulnerabilities in this group.`;
+
+            try {
+              // Create Devin session
+              const sessionResponse = await fetch('https://api.devin.ai/v1/sessions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${devinApiKey}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  prompt: prompt,
+                  unlisted: true
+                })
+              });
+              
+              if (!sessionResponse.ok) {
+                console.error(`Failed to create Devin session for ${groupName}: ${sessionResponse.status}`);
+                continue;
+              }
+              
+              const sessionData = await sessionResponse.json();
+              console.log(`Created Devin session for ${groupName}: ${sessionData.session_id}`);
+              
+              // Store session info for later processing
+              core.setOutput(`session_${groupName.replace(/[^a-zA-Z0-9]/g, '_')}`, sessionData.session_id);
+              
+            } catch (error) {
+              console.error(`Error creating Devin session for ${groupName}:`, error);
+            }
+          }
+      env:
+        DEVIN_API_TOKEN: ${{ secrets.DEVIN_API_TOKEN }}
+
+    - name: Create summary comment
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const hasNewVulns = '${{ steps.new-vulns.outputs.has_new_vulnerabilities }}' === 'true';
+          const vulnerabilityGroups = hasNewVulns ? JSON.parse('${{ steps.new-vulns.outputs.vulnerability_groups }}') : {};
+          const prNumber = '${{ github.event.inputs.pr_number }}';
+          
+          let commentBody = `# 🔒 Devin Security Analysis Results\n\n`;
+          commentBody += `**PR:** #${prNumber}\n`;
+          commentBody += `**Analysis Date:** ${new Date().toISOString()}\n\n`;
+          
+          if (!hasNewVulns) {
+            commentBody += `✅ **No new security vulnerabilities detected!**\n\n`;
+            commentBody += `This pull request does not introduce any new CodeQL security issues compared to the base branch.\n`;
+          } else {
+            const totalVulns = Object.values(vulnerabilityGroups).reduce((sum, alerts) => sum + alerts.length, 0);
+            commentBody += `⚠️ **Found ${totalVulns} new security vulnerabilities in ${Object.keys(vulnerabilityGroups).length} categories:**\n\n`;
+            
+            Object.entries(vulnerabilityGroups).forEach(([group, alerts]) => {
+              commentBody += `### ${group}\n`;
+              commentBody += `- **Count:** ${alerts.length} vulnerabilities\n`;
+              commentBody += `- **Severity:** ${alerts[0].rule.severity}\n`;
+              commentBody += `- **Files affected:** ${[...new Set(alerts.map(a => a.most_recent_instance?.location?.path))].join(', ')}\n\n`;
+            });
+            
+            commentBody += `## 🤖 Devin Analysis Status\n\n`;
+            commentBody += `Devin sessions have been created for each vulnerability group. `;
+            commentBody += `Separate pull requests with suggested fixes will be created against the \`${headBranch}\` branch once analysis is complete.\n\n`;
+            
+            commentBody += `## Next Steps\n\n`;
+            commentBody += `1. Monitor for new pull requests with Devin's suggested fixes\n`;
+            commentBody += `2. Review and test the suggested changes\n`;
+            commentBody += `3. Merge approved fixes back into your feature branch\n\n`;
+          }
+          
+          commentBody += `---\n`;
+          commentBody += `*This analysis was triggered manually and compares only new vulnerabilities introduced in this PR.*\n`;
+          commentBody += `*Workflow: \`devin-security-analysis.yml\`*`;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            body: commentBody
+          });
+
+    - name: No new vulnerabilities found
+      if: steps.new-vulns.outputs.has_new_vulnerabilities != 'true'
+      run: |
+        echo "✅ No new security vulnerabilities detected in this PR!"
+        echo "The pull request does not introduce any new CodeQL security issues."
