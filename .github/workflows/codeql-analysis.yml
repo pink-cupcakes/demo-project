@@ -1,22 +1,17 @@
-name: "CodeQL Extended Analysis"
+name: "CodeQL Analysis"
 
 on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   schedule:
     - cron: '0 2 * * 1'
   workflow_dispatch:
-    inputs:
-      queries:
-        description: 'CodeQL query suites to run'
-        required: false
-        default: 'security-extended'
-        type: choice
-        options:
-        - security-extended
-        - security-and-quality
 
 jobs:
   analyze:
-    name: Extended CodeQL Analysis
+    name: Analyze
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -36,12 +31,7 @@ jobs:
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-        queries: ${{ github.event.inputs.queries || 'security-extended' }}
-        config: |
-          name: "Extended Security Analysis"
-          queries:
-            - uses: security-extended
-            - uses: security-and-quality
+        queries: security-extended,security-and-quality
 
     - name: Autobuild
       uses: github/codeql-action/autobuild@v3
@@ -49,4 +39,4 @@ jobs:
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
       with:
-        category: "/language:${{matrix.language}}/extended"
+        category: "/language:${{matrix.language}}"
