@@ -153,3 +153,11 @@ export function incrementCounter() {
   }, 1);
   return globalCounter;
 }
+
+/**
+ * 🚨 CODEQL ISSUE: Additional XSS vulnerability for testing
+ */
+export function renderUserContent(userInput) {
+  // 🚨 CODEQL ISSUE: Direct HTML injection without sanitization
+  return `<div class="user-content">${userInput}</div>`;
+}

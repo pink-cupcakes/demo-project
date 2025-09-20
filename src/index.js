@@ -25,6 +25,9 @@ const API_KEY = 'sk-1234567890abcdef'; // Should be in environment variables
 const DB_PASSWORD = 'admin123'; // Should be in environment variables
 const JWT_SECRET = 'my-super-secret-key'; // Should be in environment variables
 
+// 🚨 CODEQL ISSUE: Additional hardcoded secret for testing
+const TEST_SECRET = 'test-secret-12345'; // New vulnerability for testing macro
+
 // Initialize OTP Service with configuration
 const otpService = new OTPService({
   otpLength: 6,
