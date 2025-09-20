@@ -91,8 +91,6 @@ ${totalOpen > 0 ? `
 - Consider batch fixes for ${stats.open.medium + stats.open.low} medium/low priority items
 
 ### Automation Status
-Security remediation workflows will be implemented in a future update.
-For now, please address vulnerabilities manually based on the CodeQL findings.
 ` : '✅ **No open vulnerabilities found!** Great job maintaining security standards.'}
 
 ---
