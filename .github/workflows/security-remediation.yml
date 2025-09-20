@@ -15,6 +15,11 @@ on:
         - medium
         - high
         - critical
+      force_run:
+        description: 'Force run even if no new alerts'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   process-security-alerts:
