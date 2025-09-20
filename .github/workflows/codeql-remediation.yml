@@ -1,0 +1,171 @@
+name: "CodeQL Remediation Trigger"
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger-remediation:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '!codeql_remediation')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      security-events: read
+      actions: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Get PR details
+      id: pr-details
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: pr } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+          
+          core.setOutput('head_sha', pr.head.sha);
+          core.setOutput('base_sha', pr.base.sha);
+          core.setOutput('head_ref', pr.head.ref);
+          core.setOutput('base_ref', pr.base.ref);
+          core.setOutput('pr_number', pr.number);
+          
+          return pr;
+
+    - name: Analyze CodeQL alerts for PR
+      id: analyze-alerts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Get all CodeQL alerts for the repository
+          const { data: alerts } = await github.rest.codeScanning.listAlertsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100,
+            state: 'open'
+          });
+          
+          // Filter alerts that are relevant to this PR's changes
+          const prAlerts = [];
+          const vulnerabilityGroups = {};
+          
+          for (const alert of alerts) {
+            // Check if alert is in files changed by this PR
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const changedFiles = files.map(f => f.filename);
+            const alertFile = alert.most_recent_instance?.location?.path;
+            
+            if (alertFile && changedFiles.some(file => alertFile.includes(file) || file.includes(alertFile))) {
+              prAlerts.push(alert);
+              
+              const ruleId = alert.rule.id;
+              const severity = alert.rule.severity;
+              const category = alert.rule.security_severity_level || severity;
+              
+              if (!vulnerabilityGroups[ruleId]) {
+                vulnerabilityGroups[ruleId] = {
+                  rule: alert.rule,
+                  alerts: [],
+                  severity: severity,
+                  category: category
+                };
+              }
+              vulnerabilityGroups[ruleId].alerts.push(alert);
+            }
+          }
+          
+          core.setOutput('pr_alerts_count', prAlerts.length);
+          core.setOutput('vulnerability_groups', JSON.stringify(vulnerabilityGroups));
+          
+          // Comment on PR with analysis results
+          const groupCount = Object.keys(vulnerabilityGroups).length;
+          const commentBody = `## 🔍 CodeQL Remediation Analysis
+          
+**Found ${prAlerts.length} CodeQL alerts in this PR affecting ${groupCount} vulnerability types.**
+
+${groupCount > 0 ? `
+### Vulnerability Groups to be Addressed:
+${Object.entries(vulnerabilityGroups).map(([ruleId, group]) => 
+  `- **${ruleId}** (${group.severity}): ${group.alerts.length} instance(s) - ${group.rule.description}`
+).join('\n')}
+
+🤖 **Devin AI will create separate MRs for each vulnerability type against your feature branch.**
+` : '✅ **No CodeQL alerts found in the changed files of this PR.**'}
+
+---
+*Triggered by !codeql_remediation macro*`;
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: commentBody
+          });
+          
+          return { prAlerts, vulnerabilityGroups };
+
+    - name: Trigger Devin AI Remediation
+      if: steps.analyze-alerts.outputs.pr_alerts_count > 0
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const vulnerabilityGroups = JSON.parse('${{ steps.analyze-alerts.outputs.vulnerability_groups }}');
+          const prNumber = '${{ steps.pr-details.outputs.pr_number }}';
+          const headRef = '${{ steps.pr-details.outputs.head_ref }}';
+          
+          // Create a dispatch event for each vulnerability group
+          for (const [ruleId, group] of Object.entries(vulnerabilityGroups)) {
+            const payload = {
+              pr_number: prNumber,
+              head_ref: headRef,
+              vulnerability_type: ruleId,
+              severity: group.severity,
+              alerts: group.alerts,
+              rule_description: group.rule.description
+            };
+            
+            // Trigger repository dispatch for Devin AI integration
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'devin-codeql-remediation',
+              client_payload: payload
+            });
+            
+            console.log(`Triggered Devin AI remediation for ${ruleId}`);
+          }
+          
+          // Update the PR comment with dispatch status
+          const dispatchCount = Object.keys(vulnerabilityGroups).length;
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: `🚀 **Triggered ${dispatchCount} Devin AI remediation workflow(s)**\n\nEach vulnerability type will be addressed in a separate MR against your feature branch \`${headRef}\`.`
+          });
+
+    - name: Handle no alerts case
+      if: steps.analyze-alerts.outputs.pr_alerts_count == 0
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: `✅ **No CodeQL alerts found in this PR**\n\nThe changed files in this PR do not contain any open CodeQL security alerts that require remediation.`
+          });
