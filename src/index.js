@@ -1,6 +1,7 @@
 import express from 'express';
 import { OTPService } from './otpService.js';
 import { exec } from 'child_process';
+import fs from 'fs';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -73,9 +74,10 @@ app.post('/otp/generate', async (req, res) => {
 
     const result = await otpService.generateAndSend(identifier, channels, options);
     
-    // Remove OTP from response in production
+    // Remove OTP from response in production - use strict comparison and validate NODE_ENV
     const response = { ...result };
-    if (process.env.NODE_ENV === 'production') {
+    const nodeEnv = process.env.NODE_ENV;
+    if (nodeEnv === 'production' || nodeEnv === 'prod') {
       delete response.otp;
     }
 
@@ -235,18 +237,30 @@ app.post('/demo/multi-channel', async (req, res) => {
 });
 
 /**
- * Test endpoint - intentionally vulnerable for CodeQL testing
+ * Test endpoint - secure log viewer for debugging
  */
 app.get('/debug/logs', (req, res) => {
   const logFile = req.query.file || 'app.log';
-  // Vulnerable: user input directly in exec command
-  exec(`tail -n 50 /var/log/${logFile}`, (error, stdout, stderr) => {
+  
+  const allowedFilePattern = /^[a-zA-Z0-9._-]+\.log$/;
+  if (!allowedFilePattern.test(logFile)) {
+    return res.status(400).json({ 
+      error: 'Invalid log file name. Only alphanumeric characters, dots, and hyphens are allowed, and file must end with .log' 
+    });
+  }
+  
+  const logPath = `/var/log/${logFile}`;
+  fs.readFile(logPath, 'utf8', (error, data) => {
     if (error) {
       return res.status(500).json({ error: 'Failed to read log file' });
     }
+    
+    const lines = data.split('\n');
+    const lastLines = lines.slice(-50).join('\n');
+    
     res.json({ 
       file: logFile,
-      content: stdout,
+      content: lastLines,
       message: 'Log file contents (last 50 lines)'
     });
   });
