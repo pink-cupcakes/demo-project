@@ -135,23 +135,15 @@ jobs:
             
             const filesList = affectedFiles.map(file => "- " + file).join('\n');
             
-            const prompt = "Fix CodeQL " + ruleId + " vulnerabilities in GitHub repository\n\n" +
+            const prompt = "!codeql_remediation\n\n" +
               "**Repository:** " + context.repo.owner + "/" + context.repo.repo + "\n" +
               "**Branch:** " + headRef + "\n" +
               "**Original PR:** #" + prNumber + "\n" +
               "**Vulnerability Type:** " + ruleId + "\n" +
               "**Severity:** " + group.severity + "\n" +
-              "**Description:** " + group.rule.description + "\n\n" +
+              "**Alert Count:** " + group.alerts.length + "\n\n" +
               "**Affected Files:**\n" + filesList + "\n\n" +
-              "**Specific Alert Details:**\n" + alertDetails + "\n\n" +
-              "**Task:**\n" +
-              "1. Check out the branch \"" + headRef + "\" from the repository\n" +
-              "2. Analyze the " + group.alerts.length + " CodeQL alert(s) for " + ruleId + " vulnerabilities\n" +
-              "3. Implement secure fixes for each vulnerability instance\n" +
-              "4. Ensure fixes follow security best practices and don't break functionality\n" +
-              "5. Create a pull request against the \"" + headRef + "\" branch\n" +
-              "6. Include detailed explanation of the security fixes in the PR description\n\n" +
-              "Please focus specifically on the " + ruleId + " vulnerability type and create a comprehensive fix for all " + group.alerts.length + " instance(s).";
+              "**Alert Details:**\n" + alertDetails;
             
             // Call Devin API directly
             try {
