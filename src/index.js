@@ -1,6 +1,7 @@
 import express from 'express';
 import { OTPService } from './otpService.js';
-import { exec } from 'child_process';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -235,21 +236,38 @@ app.post('/demo/multi-channel', async (req, res) => {
 });
 
 /**
- * Test endpoint - intentionally vulnerable for CodeQL testing
+ * Test endpoint - secure file reading implementation
  */
-app.get('/debug/logs', (req, res) => {
-  const logFile = req.query.file || 'app.log';
-  // Vulnerable: user input directly in exec command
-  exec(`tail -n 50 /var/log/${logFile}`, (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ error: 'Failed to read log file' });
+app.get('/debug/logs', async (req, res) => {
+  try {
+    const logFile = req.query.file || 'app.log';
+    
+    const sanitizedLogFile = logFile.replace(/[^a-zA-Z0-9.-]/g, '');
+    if (sanitizedLogFile !== logFile) {
+      return res.status(400).json({ error: 'Invalid log file name' });
     }
+    
+    const logPath = join('/var/log', sanitizedLogFile);
+    
+    const content = await readFile(logPath, 'utf8');
+    
+    const lines = content.split('\n');
+    const lastLines = lines.slice(-50).join('\n');
+    
     res.json({ 
-      file: logFile,
-      content: stdout,
+      file: sanitizedLogFile,
+      content: lastLines,
       message: 'Log file contents (last 50 lines)'
     });
-  });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Log file not found' });
+    }
+    if (error.code === 'EACCES') {
+      return res.status(403).json({ error: 'Access denied to log file' });
+    }
+    return res.status(500).json({ error: 'Failed to read log file' });
+  }
 });
 
 /**
