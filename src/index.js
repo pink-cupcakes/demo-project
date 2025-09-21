@@ -1,6 +1,7 @@
 import express from 'express';
 import { OTPService } from './otpService.js';
 import { exec } from 'child_process';
+import fs from 'fs';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -235,18 +236,34 @@ app.post('/demo/multi-channel', async (req, res) => {
 });
 
 /**
- * Test endpoint - intentionally vulnerable for CodeQL testing
+ * Test endpoint - secure log viewer
  */
 app.get('/debug/logs', (req, res) => {
   const logFile = req.query.file || 'app.log';
-  // Vulnerable: user input directly in exec command
-  exec(`tail -n 50 /var/log/${logFile}`, (error, stdout, stderr) => {
+  
+  const allowedLogFiles = ['app.log', 'error.log', 'access.log', 'debug.log'];
+  
+  const sanitizedLogFile = logFile.replace(/\.\./g, '').replace(/\//g, '');
+  
+  if (!allowedLogFiles.includes(sanitizedLogFile)) {
+    return res.status(400).json({ 
+      error: 'Invalid log file requested',
+      allowedFiles: allowedLogFiles
+    });
+  }
+  
+  const logPath = `/var/log/${sanitizedLogFile}`;
+  fs.readFile(logPath, 'utf8', (error, data) => {
     if (error) {
       return res.status(500).json({ error: 'Failed to read log file' });
     }
+    
+    const lines = data.split('\n');
+    const lastLines = lines.slice(-50).join('\n');
+    
     res.json({ 
-      file: logFile,
-      content: stdout,
+      file: sanitizedLogFile,
+      content: lastLines,
       message: 'Log file contents (last 50 lines)'
     });
   });
