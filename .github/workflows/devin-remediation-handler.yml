@@ -133,29 +133,25 @@ jobs:
         git config --local user.name "Devin AI"
         
         # Create a simple tracking file
-        echo "# Devin AI Session Tracking
-
-**Session ID:** ${{ fromJson(steps.devin-session.outputs.result).session_id }}
-**Session URL:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-**Vulnerability Type:** ${{ steps.payload.outputs.vulnerability_type }}
-**Severity:** ${{ steps.payload.outputs.severity }}
-**Alert Count:** ${{ fromJson(steps.devin-session.outputs.result).alertCount }}
-**Original PR:** #${{ steps.payload.outputs.pr_number }}
-**Target Branch:** ${{ steps.payload.outputs.head_ref }}
-
-This file tracks the Devin AI session created to address CodeQL vulnerabilities.
-The actual fixes will be implemented by Devin AI in a separate pull request.
-" > DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "# Devin AI Session Tracking" > DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Session ID: ${{ fromJson(steps.devin-session.outputs.result).session_id }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Session URL: ${{ fromJson(steps.devin-session.outputs.result).session_url }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Vulnerability Type: ${{ steps.payload.outputs.vulnerability_type }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Severity: ${{ steps.payload.outputs.severity }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Alert Count: ${{ fromJson(steps.devin-session.outputs.result).alertCount }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Original PR: #${{ steps.payload.outputs.pr_number }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "Target Branch: ${{ steps.payload.outputs.head_ref }}" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "" >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "This file tracks the Devin AI session created to address CodeQL vulnerabilities." >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        echo "The actual fixes will be implemented by Devin AI in a separate pull request." >> DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
         
         git add DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
-        git commit -m "track: Devin AI session for ${{ steps.payload.outputs.vulnerability_type }} vulnerabilities
-
-- Created Devin session: ${{ fromJson(steps.devin-session.outputs.result).session_id }}
-- Session URL: ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-- Addressing ${{ fromJson(steps.devin-session.outputs.result).alertCount }} instances
-- Severity: ${{ steps.payload.outputs.severity }}
-
-Devin AI will create a separate PR with the actual security fixes."
+        git commit -m "track: Devin AI session for ${{ steps.payload.outputs.vulnerability_type }} vulnerabilities" \
+                   -m "Created Devin session: ${{ fromJson(steps.devin-session.outputs.result).session_id }}" \
+                   -m "Session URL: ${{ fromJson(steps.devin-session.outputs.result).session_url }}" \
+                   -m "Addressing ${{ fromJson(steps.devin-session.outputs.result).alertCount }} instances" \
+                   -m "Severity: ${{ steps.payload.outputs.severity }}"
 
     - name: Push remediation branch
       run: |
