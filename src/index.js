@@ -1,6 +1,5 @@
 import express from 'express';
 import { OTPService } from './otpService.js';
-import { exec } from 'child_process';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -235,21 +234,6 @@ app.post('/demo/multi-channel', async (req, res) => {
 });
 
 /**
- * Test endpoint for command execution (VULNERABLE - for testing)
- */
-app.get('/test/logs', (req, res) => {
-  const logFile = req.query.file || 'app.log';
-  // This is intentionally vulnerable for testing CodeQL detection
-  exec(`cat /var/log/${logFile}`, (error, stdout, stderr) => {
-    if (error) {
-      res.status(500).json({ error: error.message });
-      return;
-    }
-    res.json({ logs: stdout });
-  });
-});
-
-/**
  * API Documentation endpoint
  */
 app.get('/', (req, res) => {
@@ -265,8 +249,7 @@ app.get('/', (req, res) => {
       'POST /otp/resend': 'Resend OTP',
       'GET /otp/session/:sessionId': 'Get session status',
       'POST /otp/cleanup': 'Clean expired sessions',
-      'POST /demo/multi-channel': 'Multi-channel demo',
-      'GET /test/logs': '⚠️  TEST: Command injection (for CodeQL testing)'
+      'POST /demo/multi-channel': 'Multi-channel demo'
     },
     supportedChannels: ['sms', 'email', 'push'],
     documentation: 'See README.md for detailed usage examples'
