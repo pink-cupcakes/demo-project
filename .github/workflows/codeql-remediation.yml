@@ -93,21 +93,15 @@ jobs:
           
           // Comment on PR with analysis results
           const groupCount = Object.keys(vulnerabilityGroups).length;
-          const commentBody = `## 🔍 CodeQL Remediation Analysis
+          const vulnerabilityList = Object.entries(vulnerabilityGroups).map(([ruleId, group]) => 
+            "- **" + ruleId + "** (" + group.severity + "): " + group.alerts.length + " instance(s) - " + group.rule.description
+          ).join('\n');
           
-**Found ${prAlerts.length} CodeQL alerts in this PR affecting ${groupCount} vulnerability types.**
-
-${groupCount > 0 ? `
-### Vulnerability Groups to be Addressed:
-${Object.entries(vulnerabilityGroups).map(([ruleId, group]) => 
-  `- **${ruleId}** (${group.severity}): ${group.alerts.length} instance(s) - ${group.rule.description}`
-).join('\n')}
-
-🤖 **Devin AI will create separate MRs for each vulnerability type against your feature branch.**
-` : '✅ **No CodeQL alerts found in the changed files of this PR.**'}
-
----
-*Triggered by !codeql_remediation macro*`;
+          const groupSection = groupCount > 0 ? 
+            "### Vulnerability Groups to be Addressed:\n" + vulnerabilityList + "\n\n🤖 **Devin AI will create separate MRs for each vulnerability type against your feature branch.**" :
+            '✅ **No CodeQL alerts found in the changed files of this PR.**';
+          
+          const commentBody = "## 🔍 CodeQL Remediation Analysis\n\n**Found " + prAlerts.length + " CodeQL alerts in this PR affecting " + groupCount + " vulnerability types.**\n\n" + groupSection + "\n\n---\n*Triggered by !codeql_remediation macro*";
 
           await github.rest.issues.createComment({
             owner: context.repo.owner,

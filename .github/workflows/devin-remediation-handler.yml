@@ -66,44 +66,36 @@ jobs:
           const affectedFiles = [...new Set(alerts.map(alert => alert.most_recent_instance?.location?.path).filter(Boolean))];
           const alertDetails = alerts.map(alert => {
             const location = alert.most_recent_instance?.location;
-            return `- **File:** ${location?.path || 'Unknown'} (Line ${location?.start_line || 'Unknown'})
-  - **Message:** ${alert.most_recent_instance?.message?.text || 'No message'}
-  - **Alert URL:** ${alert.html_url}`;
+            return "- **File:** " + (location?.path || 'Unknown') + " (Line " + (location?.start_line || 'Unknown') + ")\n  - **Message:** " + (alert.most_recent_instance?.message?.text || 'No message') + "\n  - **Alert URL:** " + alert.html_url;
           }).join('\n');
           
-          const prompt = `Fix CodeQL ${vulnerabilityType} vulnerabilities in GitHub repository
-
-**Repository:** ${context.repo.owner}/${context.repo.repo}
-**Branch:** ${headRef}
-**Original PR:** #${originalPR}
-**Vulnerability Type:** ${vulnerabilityType}
-**Severity:** ${severity}
-**Description:** ${ruleDescription}
-
-**Affected Files:**
-${affectedFiles.map(file => `- ${file}`).join('\n')}
-
-**Specific Alert Details:**
-${alertDetails}
-
-**Task:**
-1. Check out the branch "${headRef}" from the repository
-2. Analyze the ${alerts.length} CodeQL alert(s) for ${vulnerabilityType} vulnerabilities
-3. Implement secure fixes for each vulnerability instance
-4. Ensure fixes follow security best practices and don't break functionality
-5. Create a new branch with format: devin/codeql-fix-${vulnerabilityType}-{timestamp}
-6. Commit the fixes with descriptive commit messages
-7. Create a pull request against the "${headRef}" branch
-8. Include detailed explanation of the security fixes in the PR description
-
-**Security Guidelines:**
-- Follow OWASP secure coding practices
-- Validate and sanitize all inputs appropriately
-- Use proper encoding for outputs
-- Implement secure authentication and authorization where needed
-- Test that functionality remains intact after fixes
-
-Please focus specifically on the ${vulnerabilityType} vulnerability type and create a comprehensive fix for all ${alerts.length} instance(s).`;
+          const filesList = affectedFiles.map(file => "- " + file).join('\n');
+          
+          const prompt = "Fix CodeQL " + vulnerabilityType + " vulnerabilities in GitHub repository\n\n" +
+            "**Repository:** " + context.repo.owner + "/" + context.repo.repo + "\n" +
+            "**Branch:** " + headRef + "\n" +
+            "**Original PR:** #" + originalPR + "\n" +
+            "**Vulnerability Type:** " + vulnerabilityType + "\n" +
+            "**Severity:** " + severity + "\n" +
+            "**Description:** " + ruleDescription + "\n\n" +
+            "**Affected Files:**\n" + filesList + "\n\n" +
+            "**Specific Alert Details:**\n" + alertDetails + "\n\n" +
+            "**Task:**\n" +
+            "1. Check out the branch \"" + headRef + "\" from the repository\n" +
+            "2. Analyze the " + alerts.length + " CodeQL alert(s) for " + vulnerabilityType + " vulnerabilities\n" +
+            "3. Implement secure fixes for each vulnerability instance\n" +
+            "4. Ensure fixes follow security best practices and don't break functionality\n" +
+            "5. Create a new branch with format: devin/codeql-fix-" + vulnerabilityType + "-{timestamp}\n" +
+            "6. Commit the fixes with descriptive commit messages\n" +
+            "7. Create a pull request against the \"" + headRef + "\" branch\n" +
+            "8. Include detailed explanation of the security fixes in the PR description\n\n" +
+            "**Security Guidelines:**\n" +
+            "- Follow OWASP secure coding practices\n" +
+            "- Validate and sanitize all inputs appropriately\n" +
+            "- Use proper encoding for outputs\n" +
+            "- Implement secure authentication and authorization where needed\n" +
+            "- Test that functionality remains intact after fixes\n\n" +
+            "Please focus specifically on the " + vulnerabilityType + " vulnerability type and create a comprehensive fix for all " + alerts.length + " instance(s).";
 
           // Call Devin API to create session
           const response = await fetch('https://api.devin.ai/v1/sessions', {
@@ -180,40 +172,34 @@ Devin AI will create a separate PR with the actual security fixes."
           const branchName = '${{ steps.branch.outputs.branch_name }}';
           const alertCount = ${{ fromJson(steps.devin-session.outputs.result).alertCount }};
           
-          const title = `🤖 Devin AI Session: Fix ${vulnerabilityType} vulnerabilities (${severity})`;
-          const body = `## 🤖 Devin AI CodeQL Remediation Session
-
-**Devin AI Session Created:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-
-This MR tracks the Devin AI session created to address **${vulnerabilityType}** vulnerabilities detected by CodeQL analysis.
-
-### Session Details:
-- **Session ID:** ${{ fromJson(steps.devin-session.outputs.result).session_id }}
-- **Session URL:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-- **Vulnerability Type:** ${vulnerabilityType}
-- **Severity:** ${severity}
-- **Instances Found:** ${alertCount}
-- **Original PR:** #${originalPR}
-- **Target Branch:** ${headRef}
-
-### What Devin AI Will Do:
-1. ✅ Analyze the ${alertCount} CodeQL alert(s) for ${vulnerabilityType}
-2. ✅ Implement secure fixes following security best practices
-3. ✅ Create a separate pull request with the remediation changes
-4. ✅ Target the fixes against your feature branch: \`${headRef}\`
-
-### Next Steps:
-1. **Monitor the Devin session:** Visit the session URL above to track progress
-2. **Review Devin's PR:** Devin will create a separate PR with the actual fixes
-3. **Merge Devin's fixes:** Once reviewed, merge Devin's PR into your feature branch
-4. **Continue with your work:** Proceed with your original PR #${originalPR}
-
----
-**🔗 Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-**Generated by:** Devin AI CodeQL Remediation Workflow
-**Triggered by:** !codeql_remediation macro in PR #${originalPR}
-**Link to Devin run:** https://app.devin.ai/sessions/b5ba7a9357b546978b17b5ef098b5ea3
-**Requested by:** @pink-cupcakes`;
+          const title = "🤖 Devin AI Session: Fix " + vulnerabilityType + " vulnerabilities (" + severity + ")";
+          const body = "## 🤖 Devin AI CodeQL Remediation Session\n\n" +
+            "**Devin AI Session Created:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}\n\n" +
+            "This MR tracks the Devin AI session created to address **" + vulnerabilityType + "** vulnerabilities detected by CodeQL analysis.\n\n" +
+            "### Session Details:\n" +
+            "- **Session ID:** ${{ fromJson(steps.devin-session.outputs.result).session_id }}\n" +
+            "- **Session URL:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}\n" +
+            "- **Vulnerability Type:** " + vulnerabilityType + "\n" +
+            "- **Severity:** " + severity + "\n" +
+            "- **Instances Found:** " + alertCount + "\n" +
+            "- **Original PR:** #" + originalPR + "\n" +
+            "- **Target Branch:** " + headRef + "\n\n" +
+            "### What Devin AI Will Do:\n" +
+            "1. ✅ Analyze the " + alertCount + " CodeQL alert(s) for " + vulnerabilityType + "\n" +
+            "2. ✅ Implement secure fixes following security best practices\n" +
+            "3. ✅ Create a separate pull request with the remediation changes\n" +
+            "4. ✅ Target the fixes against your feature branch: `" + headRef + "`\n\n" +
+            "### Next Steps:\n" +
+            "1. **Monitor the Devin session:** Visit the session URL above to track progress\n" +
+            "2. **Review Devin's PR:** Devin will create a separate PR with the actual fixes\n" +
+            "3. **Merge Devin's fixes:** Once reviewed, merge Devin's PR into your feature branch\n" +
+            "4. **Continue with your work:** Proceed with your original PR #" + originalPR + "\n\n" +
+            "---\n" +
+            "**🔗 Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}\n" +
+            "**Generated by:** Devin AI CodeQL Remediation Workflow\n" +
+            "**Triggered by:** !codeql_remediation macro in PR #" + originalPR + "\n" +
+            "**Link to Devin run:** https://app.devin.ai/sessions/b5ba7a9357b546978b17b5ef098b5ea3\n" +
+            "**Requested by:** @pink-cupcakes";
 
           const { data: pr } = await github.rest.pulls.create({
             owner: context.repo.owner,
@@ -238,15 +224,13 @@ This MR tracks the Devin AI session created to address **${vulnerabilityType}** 
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: originalPR,
-            body: `🤖 **Devin AI Session Created for ${vulnerabilityType} Remediation**
-
-**Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
-**Tracking MR:** ${pr.html_url}
-**Target Branch:** \`${headRef}\`
-**Instances:** ${alertCount}
-
-Devin AI is now working on fixing the ${vulnerabilityType} vulnerabilities. Monitor the session above and watch for Devin's remediation PR targeting your feature branch.`
+            body: "🤖 **Devin AI Session Created for " + vulnerabilityType + " Remediation**\n\n" +
+              "**Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}\n" +
+              "**Tracking MR:** " + pr.html_url + "\n" +
+              "**Target Branch:** `" + headRef + "`\n" +
+              "**Instances:** " + alertCount + "\n\n" +
+              "Devin AI is now working on fixing the " + vulnerabilityType + " vulnerabilities. Monitor the session above and watch for Devin's remediation PR targeting your feature branch."
           });
           
-          console.log(`Created remediation MR: ${pr.html_url}`);
+          console.log("Created remediation MR: " + pr.html_url);
           return pr;
