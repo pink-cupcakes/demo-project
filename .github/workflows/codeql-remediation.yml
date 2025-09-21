@@ -122,23 +122,21 @@ jobs:
           const prNumber = '${{ steps.pr-details.outputs.pr_number }}';
           const headRef = '${{ steps.pr-details.outputs.head_ref }}';
           
-          // Create a dispatch event for each vulnerability group
+          // Trigger Devin AI workflow for each vulnerability group
           for (const [ruleId, group] of Object.entries(vulnerabilityGroups)) {
-            const payload = {
-              pr_number: prNumber,
-              head_ref: headRef,
-              vulnerability_type: ruleId,
-              severity: group.severity,
-              alerts: group.alerts,
-              rule_description: group.rule.description
-            };
-            
-            // Trigger repository dispatch for Devin AI integration
-            await github.rest.repos.createDispatchEvent({
+            await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              event_type: 'devin-codeql-remediation',
-              client_payload: payload
+              workflow_id: 'devin-remediation-handler.yml',
+              ref: 'main',
+              inputs: {
+                pr_number: prNumber,
+                head_ref: headRef,
+                vulnerability_type: ruleId,
+                severity: group.severity,
+                rule_description: group.rule.description,
+                alerts: JSON.stringify(group.alerts)
+              }
             });
             
             console.log(`Triggered Devin AI remediation for ${ruleId}`);
