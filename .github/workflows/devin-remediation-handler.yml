@@ -1,0 +1,252 @@
+name: "Devin AI CodeQL Remediation Handler"
+
+on:
+  repository_dispatch:
+    types: [devin-codeql-remediation]
+
+jobs:
+  create-remediation-mr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      security-events: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Extract payload data
+      id: payload
+      run: |
+        echo "pr_number=${{ github.event.client_payload.pr_number }}" >> $GITHUB_OUTPUT
+        echo "head_ref=${{ github.event.client_payload.head_ref }}" >> $GITHUB_OUTPUT
+        echo "vulnerability_type=${{ github.event.client_payload.vulnerability_type }}" >> $GITHUB_OUTPUT
+        echo "severity=${{ github.event.client_payload.severity }}" >> $GITHUB_OUTPUT
+        echo "rule_description=${{ github.event.client_payload.rule_description }}" >> $GITHUB_OUTPUT
+
+    - name: Checkout feature branch
+      run: |
+        git fetch origin ${{ steps.payload.outputs.head_ref }}
+        git checkout ${{ steps.payload.outputs.head_ref }}
+
+    - name: Create remediation branch
+      id: branch
+      run: |
+        TIMESTAMP=$(date +%s)
+        BRANCH_NAME="devin/codeql-fix-${{ steps.payload.outputs.vulnerability_type }}-${TIMESTAMP}"
+        git checkout -b "${BRANCH_NAME}"
+        echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+
+    - name: Create Devin AI Remediation Session
+      id: devin-session
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const vulnerabilityType = '${{ steps.payload.outputs.vulnerability_type }}';
+          const severity = '${{ steps.payload.outputs.severity }}';
+          const ruleDescription = '${{ steps.payload.outputs.rule_description }}';
+          const alerts = ${{ toJson(github.event.client_payload.alerts) }};
+          const originalPR = '${{ steps.payload.outputs.pr_number }}';
+          const headRef = '${{ steps.payload.outputs.head_ref }}';
+          
+          // Prepare detailed prompt for Devin AI
+          const affectedFiles = [...new Set(alerts.map(alert => alert.most_recent_instance?.location?.path).filter(Boolean))];
+          const alertDetails = alerts.map(alert => {
+            const location = alert.most_recent_instance?.location;
+            return `- **File:** ${location?.path || 'Unknown'} (Line ${location?.start_line || 'Unknown'})
+  - **Message:** ${alert.most_recent_instance?.message?.text || 'No message'}
+  - **Alert URL:** ${alert.html_url}`;
+          }).join('\n');
+          
+          const prompt = `Fix CodeQL ${vulnerabilityType} vulnerabilities in GitHub repository
+
+**Repository:** ${context.repo.owner}/${context.repo.repo}
+**Branch:** ${headRef}
+**Original PR:** #${originalPR}
+**Vulnerability Type:** ${vulnerabilityType}
+**Severity:** ${severity}
+**Description:** ${ruleDescription}
+
+**Affected Files:**
+${affectedFiles.map(file => `- ${file}`).join('\n')}
+
+**Specific Alert Details:**
+${alertDetails}
+
+**Task:**
+1. Check out the branch "${headRef}" from the repository
+2. Analyze the ${alerts.length} CodeQL alert(s) for ${vulnerabilityType} vulnerabilities
+3. Implement secure fixes for each vulnerability instance
+4. Ensure fixes follow security best practices and don't break functionality
+5. Create a new branch with format: devin/codeql-fix-${vulnerabilityType}-{timestamp}
+6. Commit the fixes with descriptive commit messages
+7. Create a pull request against the "${headRef}" branch
+8. Include detailed explanation of the security fixes in the PR description
+
+**Security Guidelines:**
+- Follow OWASP secure coding practices
+- Validate and sanitize all inputs appropriately
+- Use proper encoding for outputs
+- Implement secure authentication and authorization where needed
+- Test that functionality remains intact after fixes
+
+Please focus specifically on the ${vulnerabilityType} vulnerability type and create a comprehensive fix for all ${alerts.length} instance(s).`;
+
+          // Call Devin API to create session
+          const response = await fetch('https://api.devin.ai/v1/sessions', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ${{ secrets.DEVIN_API_TOKEN }}',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              prompt: prompt,
+              idempotent: true,
+              unlisted: false
+            })
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Devin API call failed: ${response.status} ${response.statusText} - ${errorText}`);
+          }
+          
+          const sessionData = await response.json();
+          console.log(`Created Devin session: ${sessionData.url}`);
+          
+          return {
+            session_id: sessionData.session_id,
+            session_url: sessionData.url,
+            is_new_session: sessionData.is_new_session,
+            vulnerabilityType,
+            alertCount: alerts.length
+          };
+
+    - name: Create tracking commit
+      run: |
+        git config --local user.email "devin-ai-integration[bot]@users.noreply.github.com"
+        git config --local user.name "Devin AI"
+        
+        # Create a simple tracking file
+        echo "# Devin AI Session Tracking
+
+**Session ID:** ${{ fromJson(steps.devin-session.outputs.result).session_id }}
+**Session URL:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+**Vulnerability Type:** ${{ steps.payload.outputs.vulnerability_type }}
+**Severity:** ${{ steps.payload.outputs.severity }}
+**Alert Count:** ${{ fromJson(steps.devin-session.outputs.result).alertCount }}
+**Original PR:** #${{ steps.payload.outputs.pr_number }}
+**Target Branch:** ${{ steps.payload.outputs.head_ref }}
+
+This file tracks the Devin AI session created to address CodeQL vulnerabilities.
+The actual fixes will be implemented by Devin AI in a separate pull request.
+" > DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        
+        git add DEVIN_SESSION_${{ steps.payload.outputs.vulnerability_type }}.md
+        git commit -m "track: Devin AI session for ${{ steps.payload.outputs.vulnerability_type }} vulnerabilities
+
+- Created Devin session: ${{ fromJson(steps.devin-session.outputs.result).session_id }}
+- Session URL: ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+- Addressing ${{ fromJson(steps.devin-session.outputs.result).alertCount }} instances
+- Severity: ${{ steps.payload.outputs.severity }}
+
+Devin AI will create a separate PR with the actual security fixes."
+
+    - name: Push remediation branch
+      run: |
+        git push origin ${{ steps.branch.outputs.branch_name }}
+
+    - name: Create remediation MR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const vulnerabilityType = '${{ steps.payload.outputs.vulnerability_type }}';
+          const severity = '${{ steps.payload.outputs.severity }}';
+          const originalPR = '${{ steps.payload.outputs.pr_number }}';
+          const headRef = '${{ steps.payload.outputs.head_ref }}';
+          const branchName = '${{ steps.branch.outputs.branch_name }}';
+          const alertCount = ${{ fromJson(steps.devin-session.outputs.result).alertCount }};
+          
+          const title = `🤖 Devin AI Session: Fix ${vulnerabilityType} vulnerabilities (${severity})`;
+          const body = `## 🤖 Devin AI CodeQL Remediation Session
+
+**Devin AI Session Created:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+
+This MR tracks the Devin AI session created to address **${vulnerabilityType}** vulnerabilities detected by CodeQL analysis.
+
+### Session Details:
+- **Session ID:** ${{ fromJson(steps.devin-session.outputs.result).session_id }}
+- **Session URL:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+- **Vulnerability Type:** ${vulnerabilityType}
+- **Severity:** ${severity}
+- **Instances Found:** ${alertCount}
+- **Original PR:** #${originalPR}
+- **Target Branch:** ${headRef}
+
+### What Devin AI Will Do:
+1. ✅ Analyze the ${alertCount} CodeQL alert(s) for ${vulnerabilityType}
+2. ✅ Implement secure fixes following security best practices
+3. ✅ Create a separate pull request with the remediation changes
+4. ✅ Target the fixes against your feature branch: \`${headRef}\`
+
+### Next Steps:
+1. **Monitor the Devin session:** Visit the session URL above to track progress
+2. **Review Devin's PR:** Devin will create a separate PR with the actual fixes
+3. **Merge Devin's fixes:** Once reviewed, merge Devin's PR into your feature branch
+4. **Continue with your work:** Proceed with your original PR #${originalPR}
+
+---
+**🔗 Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+**Generated by:** Devin AI CodeQL Remediation Workflow
+**Triggered by:** !codeql_remediation macro in PR #${originalPR}
+**Link to Devin run:** https://app.devin.ai/sessions/b5ba7a9357b546978b17b5ef098b5ea3
+**Requested by:** @pink-cupcakes`;
+
+          const { data: pr } = await github.rest.pulls.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            head: branchName,
+            base: headRef,
+            draft: false
+          });
+          
+          // Add labels
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            labels: ['security', 'codeql-remediation', 'automated', `severity-${severity}`]
+          });
+          
+          // Comment on original PR
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: originalPR,
+            body: `🤖 **Devin AI Session Created for ${vulnerabilityType} Remediation**
+
+**Devin Session:** ${{ fromJson(steps.devin-session.outputs.result).session_url }}
+**Tracking MR:** ${pr.html_url}
+**Target Branch:** \`${headRef}\`
+**Instances:** ${alertCount}
+
+Devin AI is now working on fixing the ${vulnerabilityType} vulnerabilities. Monitor the session above and watch for Devin's remediation PR targeting your feature branch.`
+          });
+          
+          console.log(`Created remediation MR: ${pr.html_url}`);
+          return pr;
