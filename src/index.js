@@ -2,6 +2,7 @@ import express from 'express';
 import { OTPService } from './otpService.js';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import rateLimit from 'express-rate-limit';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -238,7 +239,15 @@ app.post('/demo/multi-channel', async (req, res) => {
 /**
  * Test endpoint - secure file reading implementation
  */
-app.get('/debug/logs', async (req, res) => {
+const debugLogsRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many log requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.get('/debug/logs', debugLogsRateLimit, async (req, res) => {
   try {
     const logFile = req.query.file || 'app.log';
     
