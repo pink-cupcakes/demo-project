@@ -100,10 +100,14 @@ app.post('/otp/verify', async (req, res) => {
   try {
     const { sessionId, otp } = req.body;
 
-    if (!sessionId || !otp) {
+    // Validate input format and structure (security fix for user-controlled-bypass)
+    if (!sessionId || typeof sessionId !== 'string' || 
+        !/^otp_\d+_[a-z0-9]{8,}$/.test(sessionId) ||
+        !otp || typeof otp !== 'string' || 
+        !/^\d{4,8}$/.test(otp)) {
       return res.status(400).json({
         success: false,
-        error: 'sessionId and otp are required'
+        error: 'Invalid sessionId or otp format'
       });
     }
 
