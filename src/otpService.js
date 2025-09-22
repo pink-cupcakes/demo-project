@@ -149,8 +149,13 @@ export class OTPService {
     // Increment attempt counter
     this.attemptStore.set(sessionId, attempts + 1);
 
-    // Verify OTP
-    if (inputOtp === otpData.otp) {
+    // Verify OTP with proper validation
+    const isValidOtp = typeof inputOtp === 'string' && 
+                       typeof otpData.otp === 'string' && 
+                       inputOtp.length === otpData.otp.length &&
+                       inputOtp === otpData.otp;
+                       
+    if (isValidOtp) {
       console.log(`   ✅ OTP verified successfully`);
       
       // Mark as verified

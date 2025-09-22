@@ -1,6 +1,5 @@
 import express from 'express';
 import { OTPService } from './otpService.js';
-import { exec } from 'child_process';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -101,10 +100,14 @@ app.post('/otp/verify', async (req, res) => {
   try {
     const { sessionId, otp } = req.body;
 
-    if (!sessionId || !otp) {
+    // Validate input format and structure (security fix for user-controlled-bypass)
+    if (!sessionId || typeof sessionId !== 'string' || 
+        !/^otp_\d+_[a-z0-9]{8,}$/.test(sessionId) ||
+        !otp || typeof otp !== 'string' || 
+        !/^\d{4,8}$/.test(otp)) {
       return res.status(400).json({
         success: false,
-        error: 'sessionId and otp are required'
+        error: 'Invalid sessionId or otp format'
       });
     }
 
@@ -235,24 +238,6 @@ app.post('/demo/multi-channel', async (req, res) => {
 });
 
 /**
- * Test endpoint - intentionally vulnerable for CodeQL testing
- */
-app.get('/debug/logs', (req, res) => {
-  const logFile = req.query.file || 'app.log';
-  // Vulnerable: user input directly in exec command
-  exec(`tail -n 50 /var/log/${logFile}`, (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ error: 'Failed to read log file' });
-    }
-    res.json({ 
-      file: logFile,
-      content: stdout,
-      message: 'Log file contents (last 50 lines)'
-    });
-  });
-});
-
-/**
  * API Documentation endpoint
  */
 app.get('/', (req, res) => {
@@ -268,8 +253,7 @@ app.get('/', (req, res) => {
       'POST /otp/resend': 'Resend OTP',
       'GET /otp/session/:sessionId': 'Get session status',
       'POST /otp/cleanup': 'Clean expired sessions',
-      'POST /demo/multi-channel': 'Multi-channel demo',
-      'GET /debug/logs': '🔍 DEBUG: Log viewer (for testing)'
+      'POST /demo/multi-channel': 'Multi-channel demo'
     },
     supportedChannels: ['sms', 'email', 'push'],
     documentation: 'See README.md for detailed usage examples'
